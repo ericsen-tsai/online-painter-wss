@@ -15,18 +15,21 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
   },
 })
 
-const users: { userId: string; socketId: string }[] = []
+const users: { userId: string; socketId: string; roomId: string }[] = []
+const roomCanvas = new Map<string, string>()
 
-const getRoom = ({
-  userId,
-  socketId,
-}: {
-  userId: string
-  socketId: string
-}) => {
-  const userIndx = users.findIndex((user) => user.socketId === socketId)
-  console.log(users[userIndx], userId)
+const getAvailableRoom = () => {
   return '1'
+}
+
+const getUserRoom = ({ userId }: { userId: string }) => {
+  const user = users.find((user) => user.userId === userId)
+  if (!user) {
+    // console.log('getUserRoom', userId, users)
+    console.error('cannot find user')
+    return '1'
+  }
+  return user.roomId
 }
 
 const joinRoom = ({
@@ -36,17 +39,18 @@ const joinRoom = ({
   userId: string
   socketId: string
 }) => {
-  users.push({ userId, socketId })
-  return '1'
+  const roomId = getAvailableRoom()
+  users.push({ userId, socketId, roomId })
+  return roomId
 }
 
 const leaveRoom = ({ socketId }: { socketId: string }) => {
   const userIndx = users.findIndex((user) => user.socketId === socketId)
-  if (!userIndx) {
+  if (userIndx === -1) {
     return { userId: null }
   }
   const user = { ...users[userIndx] }
-  users.splice(userIndx)
+  users.splice(userIndx, 1)
   return { userId: user.userId }
 }
 
@@ -54,20 +58,27 @@ io.on('connection', (socket) => {
   socket.on('CanvasJoin', async (payload) => {
     console.log(`${payload.userId} joined`)
     const { userId } = payload
-    joinRoom({ userId, socketId: socket.id })
-    socket.join(getRoom({ userId, socketId: socket.id }))
+
+    const roomId = joinRoom({ userId, socketId: socket.id })
+    socket.join(roomId)
+
+    socket.emit('CanvasResponse', {
+      dataURL: roomCanvas.get(roomId) || '',
+    })
   })
 
   socket.on('CanvasUpdate', async (payload) => {
-    console.log(`${payload.userId} updated the canvas`)
     const { dataURL, userId } = payload
+    const roomId = getUserRoom({ userId })
+    roomCanvas.set(roomId, dataURL)
 
-    socket.to(getRoom({ userId, socketId: socket.id })).emit('CanvasResponse', {
+    socket.to(roomId).emit('CanvasResponse', {
       dataURL,
     })
   })
 
   socket.on('disconnect', () => {
+    console.log('someone leave', socket.id)
     const { userId } = leaveRoom({ socketId: socket.id })
     console.log(`${userId} leaved`)
   })
